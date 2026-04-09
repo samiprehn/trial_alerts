@@ -4,7 +4,6 @@ import os
 
 NTFY_TOPIC = os.environ['NTFY_TOPIC']
 SEEN_FILE = 'seen.json'
-NOTIFY_FROM = "2026-01-01"
 
 CONDITIONS = [
     {
@@ -53,11 +52,6 @@ def fetch_trials(query):
     return resp.json().get("studies", [])
 
 
-def get_first_posted(study):
-    status = study.get("protocolSection", {}).get("statusModule", {})
-    return status.get("studyFirstPostDateStruct", {}).get("date", "")
-
-
 def check_condition(condition, seen):
     key = condition["key"]
     seen_ids = set(seen.get(key, []))
@@ -70,18 +64,16 @@ def check_condition(condition, seen):
         id_module = proto.get("identificationModule", {})
         nct_id = id_module.get("nctId")
         title = id_module.get("briefTitle", "Unknown title")
-        first_posted = get_first_posted(study)
 
         if nct_id and nct_id not in seen_ids:
             seen_ids.add(nct_id)
-            if first_posted >= NOTIFY_FROM:
-                new_trials.append({"nct_id": nct_id, "title": title, "first_posted": first_posted})
+            new_trials.append({"nct_id": nct_id, "title": title})
 
     if new_trials:
         for trial in new_trials:
             ct_url = f"https://clinicaltrials.gov/study/{trial['nct_id']}"
             notify(f"New {condition['name']} Trial", trial["title"], ct_url)
-            print(f"Notified: {trial['nct_id']} ({trial['first_posted']}) — {trial['title']}")
+            print(f"Notified: {trial['nct_id']} — {trial['title']}")
     else:
         print(f"No new {condition['name']} trials ({len(seen_ids)} known)")
 

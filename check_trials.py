@@ -36,7 +36,13 @@ def notify(title, message, url=None):
     headers = {"Title": title}
     if url:
         headers["Click"] = url
-    requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode(), headers=headers)
+    try:
+        resp = requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", data=message.encode(), headers=headers, timeout=10)
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"ntfy error: {e}")
+        return False
 
 
 def fetch_trials(query):
@@ -44,12 +50,21 @@ def fetch_trials(query):
     params = {
         "query.cond": query,
         "filter.overallStatus": "RECRUITING,NOT_YET_RECRUITING",
+        "sort": "LastUpdatePostDate:desc",
         "pageSize": 1000,
         "format": "json",
     }
-    resp = requests.get(url, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("studies", [])
+    studies = []
+    for _ in range(5):  # cap pagination at 5 pages
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        studies.extend(data.get("studies", []))
+        token = data.get("nextPageToken")
+        if not token:
+            break
+        params["pageToken"] = token
+    return studies
 
 
 def check_condition(condition, seen):
@@ -66,14 +81,16 @@ def check_condition(condition, seen):
         title = id_module.get("briefTitle", "Unknown title")
 
         if nct_id and nct_id not in seen_ids:
-            seen_ids.add(nct_id)
             new_trials.append({"nct_id": nct_id, "title": title})
 
     if new_trials:
         for trial in new_trials:
             ct_url = f"https://clinicaltrials.gov/study/{trial['nct_id']}"
-            notify(f"New {condition['name']} Trial", trial["title"], ct_url)
-            print(f"Notified: {trial['nct_id']} — {trial['title']}")
+            if notify(f"New {condition['name']} Trial", trial["title"], ct_url):
+                seen_ids.add(trial["nct_id"])
+                print(f"Notified: {trial['nct_id']} — {trial['title']}")
+            else:
+                print(f"Notification failed for {trial['nct_id']}, will retry next run")
     else:
         print(f"No new {condition['name']} trials ({len(seen_ids)} known)")
 
